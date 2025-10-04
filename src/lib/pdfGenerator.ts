@@ -23,7 +23,7 @@ function filterEnglishOnly(obj: unknown): unknown {
   } else if (typeof obj === "object" && obj !== null) {
     const result: Record<string, unknown> = {};
     for (const key in obj) {
-      if (key === "ar") continue; // 🚫 skip Arabic keys
+      if (key === "ar" || key === "arabic_colloquial") continue; // 🚫 skip Arabic keys
       if (key === "en") {
         return filterEnglishOnly((obj as Record<string, unknown>)[key]); // ✅ directly return English content
       }
