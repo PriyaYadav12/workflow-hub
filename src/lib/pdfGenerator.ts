@@ -16,6 +16,24 @@ type WebhookResult = {
   };
 };
 
+type ContentCalendarResult = {
+  Product?: string;
+  brand_strategy?: string | Record<string, unknown>;
+  campaign_week?: { campaign?: CampaignDay[] } | CampaignDay[];
+  deliverableType?: string;
+  clientName?: string;
+  deliverablesRequested?: string;
+};
+
+type CampaignDay = {
+  day?: string;
+  platform?: string;
+  theme?: string;
+  post_idea?: string;
+  content_type?: string;
+  cta?: string;
+};
+
 // ✅ Utility function: remove all `ar` keys and keep only `en`
 function filterEnglishOnly(obj: unknown): unknown {
   if (Array.isArray(obj)) {
@@ -38,13 +56,40 @@ export async function generateStrategyPdf(result: unknown) {
   // Clean the result to remove Arabic keys and keep only English content
   const cleanedResult = filterEnglishOnly(result);
   console.log(cleanedResult);
-  const webhookResult = cleanedResult as WebhookResult;
   
-  if (!webhookResult?.output) {
+  // Determine result type and extract data
+  let clientName: string;
+  let deliverableType: string;
+  let deliverablesRequested: string;
+  let isStrategyFormat = false;
+  
+  // Check if it's a WebhookResult (strategy generator format)
+  const webhookResult = cleanedResult as WebhookResult;
+  if (webhookResult?.output) {
+    clientName = webhookResult.output.clientName;
+    deliverableType = webhookResult.output.deliverableType;
+    deliverablesRequested = webhookResult.output.deliverablesRequested;
+    isStrategyFormat = true;
+  } 
+  // Check if it's a ContentCalendarResult (content calendar format)
+  else if (Array.isArray(cleanedResult) && cleanedResult.length > 0) {
+    const contentResult = cleanedResult[0] as ContentCalendarResult;
+    clientName = contentResult.clientName || contentResult.Product || "Content Calendar Client";
+    deliverableType = contentResult.deliverableType || "Content Calendar";
+    deliverablesRequested = contentResult.deliverablesRequested || "Brand strategy and campaign calendar";
+    isStrategyFormat = false;
+  }
+  // Check if it's a single ContentCalendarResult object
+  else if (cleanedResult && typeof cleanedResult === "object") {
+    const contentResult = cleanedResult as ContentCalendarResult;
+    clientName = contentResult.clientName || contentResult.Product || "Content Calendar Client";
+    deliverableType = contentResult.deliverableType || "Content Calendar";
+    deliverablesRequested = contentResult.deliverablesRequested || "Brand strategy and campaign calendar";
+    isStrategyFormat = false;
+  }
+  else {
     throw new Error("Invalid result format");
   }
-
-  const { output } = webhookResult;
   const doc = new jsPDF();
   
   // Configuration
@@ -110,17 +155,17 @@ export async function generateStrategyPdf(result: unknown) {
   doc.setFontSize(12);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(139, 92, 246);
-  doc.text(output.deliverableType, margin + 5, yPosition + 15);
+  doc.text(deliverableType, margin + 5, yPosition + 15);
 
   doc.setFontSize(16);
   doc.setTextColor(0, 0, 0);
-  doc.text(output.clientName, margin + 5, yPosition + 25);
+  doc.text(clientName, margin + 5, yPosition + 25);
 
   doc.setFontSize(10);
   doc.setFont("helvetica", "normal");
   doc.setTextColor(107, 114, 128);
   yPosition = addWrappedText(
-    output.deliverablesRequested,
+    deliverablesRequested,
     margin + 5,
     yPosition + 30,
     contentWidth - 10
@@ -128,42 +173,131 @@ export async function generateStrategyPdf(result: unknown) {
 
   yPosition += 15;
 
-  // Final Output Section
+  // Content Section - handle both strategy and content calendar formats
   checkPageBreak(20);
   doc.setFontSize(14);
   doc.setFont("helvetica", "bold");
   doc.setTextColor(0, 0, 0);
-  doc.text("📦 Final Output", margin, yPosition);
+  doc.text("📦 Generated Content", margin, yPosition);
   yPosition += 10;
 
-  output.finalOutput.forEach((item, index) => {
-    checkPageBreak(30);
-    
-    // Deliverable box
-    doc.setFillColor(239, 246, 255);
-    doc.setDrawColor(191, 219, 254);
-    const boxHeight = 15;
-    doc.rect(margin, yPosition, contentWidth, boxHeight, "FD");
-    
-    doc.setFontSize(11);
-    doc.setFont("helvetica", "bold");
-    doc.setTextColor(59, 130, 246);
-    doc.text(`Deliverable ${index + 1}`, margin + 5, yPosition + 10);
-    
-    yPosition += boxHeight + 5;
+  // Handle strategy generator format (finalOutput array)
+  if (isStrategyFormat && webhookResult?.output?.finalOutput) {
+    webhookResult.output.finalOutput.forEach((item: unknown, index: number) => {
+      checkPageBreak(30);
+      
+      // Deliverable box
+      doc.setFillColor(239, 246, 255);
+      doc.setDrawColor(191, 219, 254);
+      const boxHeight = 15;
+      doc.rect(margin, yPosition, contentWidth, boxHeight, "FD");
+      
+      doc.setFontSize(11);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(59, 130, 246);
+      doc.text(`Deliverable ${index + 1}`, margin + 5, yPosition + 10);
+      
+      yPosition += boxHeight + 5;
 
-    // Render deliverable content
-    doc.setFontSize(10);
-    doc.setFont("helvetica", "normal");
-    doc.setTextColor(55, 65, 81);
+      // Render deliverable content
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(55, 65, 81);
+      
+      const content = formatDeliverableContent(item);
+      yPosition = addWrappedText(content, margin + 5, yPosition, contentWidth - 10, 6);
+      yPosition += 8;
+    });
+  }
+  // Handle content calendar format
+  else {
+    const contentResult = (Array.isArray(cleanedResult) ? cleanedResult[0] : cleanedResult) as ContentCalendarResult;
     
-    const content = formatDeliverableContent(item);
-    yPosition = addWrappedText(content, margin + 5, yPosition, contentWidth - 10, 6);
-    yPosition += 8;
-  });
+    // Brand Strategy Section
+    if (contentResult?.brand_strategy) {
+      checkPageBreak(25);
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(139, 92, 246);
+      doc.text("🧭 Brand Strategy", margin, yPosition);
+      yPosition += 8;
+      
+      doc.setFontSize(10);
+      doc.setFont("helvetica", "normal");
+      doc.setTextColor(55, 65, 81);
+      
+      let strategyContent = "";
+      if (typeof contentResult.brand_strategy === "string") {
+        try {
+          const parsed = JSON.parse(contentResult.brand_strategy);
+          strategyContent = formatDeliverableContent(parsed);
+        } catch {
+          strategyContent = contentResult.brand_strategy;
+        }
+      } else {
+        strategyContent = formatDeliverableContent(contentResult.brand_strategy);
+      }
+      
+      yPosition = addWrappedText(strategyContent, margin, yPosition, contentWidth, 6);
+      yPosition += 10;
+    }
 
-  // Strategic Reasoning Section
-  if (output.reasoning && output.reasoning.length > 0) {
+    // Campaign Week Section
+    if (contentResult?.campaign_week) {
+      checkPageBreak(25);
+      doc.setFontSize(12);
+      doc.setFont("helvetica", "bold");
+      doc.setTextColor(59, 130, 246);
+      doc.text("📅 Campaign Calendar", margin, yPosition);
+      yPosition += 8;
+      
+      let campaignDays: CampaignDay[] = [];
+      if (Array.isArray(contentResult.campaign_week)) {
+        campaignDays = contentResult.campaign_week as CampaignDay[];
+      } else if (contentResult.campaign_week && typeof contentResult.campaign_week === "object") {
+        campaignDays = (contentResult.campaign_week as { campaign?: CampaignDay[] }).campaign || [];
+      }
+      
+      campaignDays.forEach((day, index) => {
+        checkPageBreak(40);
+        
+        // Day header
+        doc.setFillColor(239, 246, 255);
+        doc.setDrawColor(191, 219, 254);
+        doc.rect(margin, yPosition, contentWidth, 12, "FD");
+        
+        doc.setFontSize(10);
+        doc.setFont("helvetica", "bold");
+        doc.setTextColor(59, 130, 246);
+        doc.text(`${day.day || `Day ${index + 1}`} - ${day.platform || "Platform"}`, margin + 5, yPosition + 8);
+        
+        yPosition += 15;
+        
+        // Day content
+        doc.setFontSize(9);
+        doc.setFont("helvetica", "normal");
+        doc.setTextColor(55, 65, 81);
+        
+        if (day.theme) {
+          yPosition = addWrappedText(`🎨 Theme: ${day.theme}`, margin + 5, yPosition, contentWidth - 10, 5);
+        }
+        if (day.post_idea) {
+          yPosition = addWrappedText(`💡 Post Idea: ${day.post_idea}`, margin + 5, yPosition, contentWidth - 10, 5);
+        }
+        if (day.content_type) {
+          yPosition = addWrappedText(`📹 Content Type: ${day.content_type}`, margin + 5, yPosition, contentWidth - 10, 5);
+        }
+        if (day.cta) {
+          yPosition = addWrappedText(`🎯 CTA: ${day.cta}`, margin + 5, yPosition, contentWidth - 10, 5);
+        }
+        
+        yPosition += 8;
+      });
+    }
+  }
+
+  // Strategic Reasoning Section (only for strategy format)
+  if (isStrategyFormat && webhookResult?.output?.reasoning && webhookResult.output.reasoning.length > 0) {
     checkPageBreak(20);
     yPosition += 5;
     
@@ -173,7 +307,7 @@ export async function generateStrategyPdf(result: unknown) {
     doc.text("🎯 Strategic Reasoning", margin, yPosition);
     yPosition += 10;
 
-    output.reasoning.forEach((reason, index) => {
+    webhookResult.output.reasoning.forEach((reason: string, index: number) => {
       checkPageBreak(25);
       
       // Number badge
@@ -194,8 +328,8 @@ export async function generateStrategyPdf(result: unknown) {
     });
   }
 
-  // Task Breakdown Section
-  if (output.task_breakdown && output.task_breakdown.length > 0) {
+  // Task Breakdown Section (only for strategy format)
+  if (isStrategyFormat && webhookResult?.output?.task_breakdown && webhookResult.output.task_breakdown.length > 0) {
     checkPageBreak(20);
     yPosition += 5;
     
@@ -205,7 +339,7 @@ export async function generateStrategyPdf(result: unknown) {
     doc.text("✅ Task Breakdown", margin, yPosition);
     yPosition += 10;
 
-    output.task_breakdown.forEach((task) => {
+    webhookResult.output.task_breakdown.forEach((task: TaskBreakdown) => {
       checkPageBreak(25);
       
       // Task number box
@@ -242,7 +376,7 @@ export async function generateStrategyPdf(result: unknown) {
   }
 
   // Download the PDF
-  const fileName = `${output.clientName.replace(/\s+/g, "_")}_Strategy_${new Date().toISOString().split("T")[0]}.pdf`;
+  const fileName = `${clientName.replace(/\s+/g, "_")}_Report_${new Date().toISOString().split("T")[0]}.pdf`;
   doc.save(fileName);
 }
 
